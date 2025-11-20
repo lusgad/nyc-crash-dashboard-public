@@ -22,169 +22,174 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 import plotly.figure_factory as ff
 
-#df = pd.read_csv("merged_cleaned_dataset.csv", dtype=str) # load as strings to be safe
 # Load dataset from Google Drive
 df = pd.read_csv("https://drive.google.com/uc?export=download&id=1-hKQcBXvIYuqXUyLfjTKp6DXinVtOss2", dtype=str)
 
-# Clean borough names to proper capitalization
-borough_mapping = {
-    'MANHATTAN': 'Manhattan',
-    'BROOKLYN': 'Brooklyn',
-    'QUEENS': 'Queens',
-    'BRONX': 'Bronx',
-    'STATEN ISLAND': 'Staten Island'
-}
+# WRAP ALL DATA PROCESSING IN TRY-EXCEPT
+try:
+    # Clean borough names to proper capitalization
+    borough_mapping = {
+        'MANHATTAN': 'Manhattan',
+        'BROOKLYN': 'Brooklyn',
+        'QUEENS': 'Queens',
+        'BRONX': 'Bronx',
+        'STATEN ISLAND': 'Staten Island'
+    }
 
-if "BOROUGH" in df.columns:
-    df["BOROUGH"] = df["BOROUGH"].str.title().replace(borough_mapping)
-    df["BOROUGH"] = df["BOROUGH"].fillna("Unknown")
-else:
-    df["BOROUGH"] = "Unknown"
+    if "BOROUGH" in df.columns:
+        df["BOROUGH"] = df["BOROUGH"].str.title().replace(borough_mapping)
+        df["BOROUGH"] = df["BOROUGH"].fillna("Unknown")
+    else:
+        df["BOROUGH"] = "Unknown"
 
-# Normalize and cast useful columns
-# Keep original columns but create convenient working columns
-# Some columns have spaces in names; use exact names from your message.
-# Convert crash datetime to datetime (coerce errors)
-df["CRASH_DATETIME"] = pd.to_datetime(df.get("CRASH_DATETIME", pd.NaT), errors="coerce")
-# YEAR for slider and groupings
-df["YEAR"] = df["CRASH_DATETIME"].dt.year
-df["MONTH"] = df["CRASH_DATETIME"].dt.month
-df["HOUR"] = df["CRASH_DATETIME"].dt.hour
-df["DAY_OF_WEEK"] = df["CRASH_DATETIME"].dt.day_name()
+    # Normalize and cast useful columns
+    # Keep original columns but create convenient working columns
+    # Some columns have spaces in names; use exact names from your message.
+    # Convert crash datetime to datetime (coerce errors)
+    df["CRASH_DATETIME"] = pd.to_datetime(df.get("CRASH_DATETIME", pd.NaT), errors="coerce")
+    # YEAR for slider and groupings
+    df["YEAR"] = df["CRASH_DATETIME"].dt.year
+    df["MONTH"] = df["CRASH_DATETIME"].dt.month
+    df["HOUR"] = df["CRASH_DATETIME"].dt.hour
+    df["DAY_OF_WEEK"] = df["CRASH_DATETIME"].dt.day_name()
 
-# Cast numeric injury/killed counts to numeric (safe)
-num_cols = [
-     "NUMBER OF PERSONS INJURED", "NUMBER OF PERSONS KILLED",
-     "NUMBER OF PEDESTRIANS INJURED", "NUMBER OF PEDESTRIANS KILLED",
-     "NUMBER OF CYCLIST INJURED", "NUMBER OF CYCLIST KILLED",
-     "NUMBER OF MOTORIST INJURED", "NUMBER OF MOTORIST KILLED"
-]
-for c in num_cols:
-     if c in df.columns:
-          df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
-     else:
-          df[c] = 0
+    # Cast numeric injury/killed counts to numeric (safe)
+    num_cols = [
+         "NUMBER OF PERSONS INJURED", "NUMBER OF PERSONS KILLED",
+         "NUMBER OF PEDESTRIANS INJURED", "NUMBER OF PEDESTRIANS KILLED",
+         "NUMBER OF CYCLIST INJURED", "NUMBER OF CYCLIST KILLED",
+         "NUMBER OF MOTORIST INJURED", "NUMBER OF MOTORIST KILLED"
+    ]
+    for c in num_cols:
+         if c in df.columns:
+              df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
+         else:
+              df[c] = 0
 
-# Helpful aggregated numeric columns
-df["TOTAL_INJURED"] = df[["NUMBER OF PERSONS INJURED",
-                         "NUMBER OF PEDESTRIANS INJURED",
-                         "NUMBER OF CYCLIST INJURED",
-                         "NUMBER OF MOTORIST INJURED"]].sum(axis=1)
-df["TOTAL_KILLED"] = df[["NUMBER OF PERSONS KILLED",
-                         "NUMBER OF PEDESTRIANS KILLED",
-                         "NUMBER OF CYCLIST KILLED",
-                         "NUMBER OF MOTORIST KILLED"]].sum(axis=1)
+    # Helpful aggregated numeric columns
+    df["TOTAL_INJURED"] = df[["NUMBER OF PERSONS INJURED",
+                             "NUMBER OF PEDESTRIANS INJURED",
+                             "NUMBER OF CYCLIST INJURED",
+                             "NUMBER OF MOTORIST INJURED"]].sum(axis=1)
+    df["TOTAL_KILLED"] = df[["NUMBER OF PERSONS KILLED",
+                             "NUMBER OF PEDESTRIANS KILLED",
+                             "NUMBER OF CYCLIST KILLED",
+                             "NUMBER OF MOTORIST KILLED"]].sum(axis=1)
 
-# Create severity score for advanced analysis
-df["SEVERITY_SCORE"] = (df["TOTAL_INJURED"] * 1 + df["TOTAL_KILLED"] * 5)
+    # Create severity score for advanced analysis
+    df["SEVERITY_SCORE"] = (df["TOTAL_INJURED"] * 1 + df["TOTAL_KILLED"] * 5)
 
-# FULL_ADDRESS fallback
-if "FULL ADDRESS" not in df.columns:
-     df["FULL ADDRESS"] = df.get("ON STREET NAME", pd.Series([""] * len(df))).fillna("") + ", " + df.get("BOROUGH", pd.Series([""] * len(df))).fillna("")
+    # FULL_ADDRESS fallback
+    if "FULL ADDRESS" not in df.columns:
+         df["FULL ADDRESS"] = df.get("ON STREET NAME", pd.Series([""] * len(df))).fillna("") + ", " + df.get("BOROUGH", pd.Series([""] * len(df))).fillna("")
 
-# Latitude / Longitude as numeric
-for coord in ("LATITUDE", "LONGITUDE"):
-     if coord in df.columns:
-          df[coord] = pd.to_numeric(df[coord], errors="coerce")
-     else:
-          df[coord] = np.nan
+    # Latitude / Longitude as numeric
+    for coord in ("LATITUDE", "LONGITUDE"):
+         if coord in df.columns:
+              df[coord] = pd.to_numeric(df[coord], errors="coerce")
+         else:
+              df[coord] = np.nan
 
-# Parse ALL_VEHICLE_TYPES (which may be a string representation of a list) and create a flattened column
-def parse_vehicle_list(v):
-     if pd.isna(v):
-          return []
-     # If it's already a Python list object (rare in CSV), handle
-     if isinstance(v, list):
-          return [str(x).strip() for x in v if str(x).strip()]
-     s = str(v).strip()
-     # Try literal_eval if it's like "['SUV/Station Wagon', 'Sedan']"
-     try:
-          parsed = ast.literal_eval(s)
-          if isinstance(parsed, (list, tuple)):
-               return [str(x).strip() for x in parsed if str(x).strip()]
-     except Exception:
-          # fallback: comma-separated
-          parts = [p.strip() for p in s.split(",") if p.strip()]
-          return parts
-     return []
+    # Parse ALL_VEHICLE_TYPES (which may be a string representation of a list) and create a flattened column
+    def parse_vehicle_list(v):
+         if pd.isna(v):
+              return []
+         # If it's already a Python list object (rare in CSV), handle
+         if isinstance(v, list):
+              return [str(x).strip() for x in v if str(x).strip()]
+         s = str(v).strip()
+         # Try literal_eval if it's like "['SUV/Station Wagon', 'Sedan']"
+         try:
+              parsed = ast.literal_eval(s)
+              if isinstance(parsed, (list, tuple)):
+                   return [str(x).strip() for x in parsed if str(x).strip()]
+         except Exception:
+              # fallback: comma-separated
+              parts = [p.strip() for p in s.split(",") if p.strip()]
+              return parts
+         return []
 
-df["VEHICLE_TYPES_LIST"] = df.get("ALL_VEHICLE_TYPES", "").apply(parse_vehicle_list)
+    df["VEHICLE_TYPES_LIST"] = df.get("ALL_VEHICLE_TYPES", "").apply(parse_vehicle_list)
 
-# Expand vehicle types per row into a flat list column for easier counting
-all_vehicle_types_flat = [vt for sub in df["VEHICLE_TYPES_LIST"] for vt in sub]
-vehicle_type_counts = pd.Series(all_vehicle_types_flat).value_counts()
-# Top 10 vehicle types for charts / heatmap combos
-TOP_VEHICLE_TYPES = vehicle_type_counts.head(10).index.tolist()
+    # Expand vehicle types per row into a flat list column for easier counting
+    all_vehicle_types_flat = [vt for sub in df["VEHICLE_TYPES_LIST"] for vt in sub]
+    vehicle_type_counts = pd.Series(all_vehicle_types_flat).value_counts()
+    # Top 10 vehicle types for charts / heatmap combos
+    TOP_VEHICLE_TYPES = vehicle_type_counts.head(10).index.tolist()
 
-# Parse contributing factors (all contributing factors column may be a list or string)
-def parse_factor_list(v):
-     if pd.isna(v):
-          return []
-     if isinstance(v, list):
-          return [str(x).strip() for x in v if str(x).strip()]
-     s = str(v).strip()
-     try:
-          parsed = ast.literal_eval(s)
-          if isinstance(parsed, (list, tuple)):
-               return [str(x).strip() for x in parsed if str(x).strip()]
-     except Exception:
-          parts = [p.strip() for p in s.split(",") if p.strip()]
-          return parts
-     return []
+    # Parse contributing factors (all contributing factors column may be a list or string)
+    def parse_factor_list(v):
+         if pd.isna(v):
+              return []
+         if isinstance(v, list):
+              return [str(x).strip() for x in v if str(x).strip()]
+         s = str(v).strip()
+         try:
+              parsed = ast.literal_eval(s)
+              if isinstance(parsed, (list, tuple)):
+                   return [str(x).strip() for x in parsed if str(x).strip()]
+         except Exception:
+              parts = [p.strip() for p in s.split(",") if p.strip()]
+              return parts
+         return []
 
-# Try to handle both ALL_CONTRIBUTING_FACTORS and ALL_CONTRIBUTING_FACTORS_STR
-if "ALL_CONTRIBUTING_FACTORS" in df.columns:
-     df["FACTORS_LIST"] = df["ALL_CONTRIBUTING_FACTORS"].apply(parse_factor_list)
-elif "ALL_CONTRIBUTING_FACTORS_STR" in df.columns:
-     df["FACTORS_LIST"] = df["ALL_CONTRIBUTING_FACTORS_STR"].apply(parse_factor_list)
-else:
-     # fallback to specific columns if provided
-     parts = []
-     for i in range(1, 4):
-          c = f"CONTRIBUTING FACTOR VEHICLE {i}"
-          if c in df.columns:
-               parts.append(df[c].fillna("").astype(str))
-     if parts:
-          df["FACTORS_LIST"] = (pd.Series([";".join(x) for x in zip(*parts)]) if parts else pd.Series([[]]*len(df))).apply(
-               lambda s: parse_factor_list(s))
-     else:
-          df["FACTORS_LIST"] = [[] for _ in range(len(df))]
+    # Try to handle both ALL_CONTRIBUTING_FACTORS and ALL_CONTRIBUTING_FACTORS_STR
+    if "ALL_CONTRIBUTING_FACTORS" in df.columns:
+         df["FACTORS_LIST"] = df["ALL_CONTRIBUTING_FACTORS"].apply(parse_factor_list)
+    elif "ALL_CONTRIBUTING_FACTORS_STR" in df.columns:
+         df["FACTORS_LIST"] = df["ALL_CONTRIBUTING_FACTORS_STR"].apply(parse_factor_list)
+    else:
+         # fallback to specific columns if provided
+         parts = []
+         for i in range(1, 4):
+              c = f"CONTRIBUTING FACTOR VEHICLE {i}"
+              if c in df.columns:
+                   parts.append(df[c].fillna("").astype(str))
+         if parts:
+              df["FACTORS_LIST"] = (pd.Series([";".join(x) for x in zip(*parts)]) if parts else pd.Series([[]]*len(df))).apply(
+                   lambda s: parse_factor_list(s))
+         else:
+              df["FACTORS_LIST"] = [[] for _ in range(len(df))]
 
-all_factors_flat = [f for sub in df["FACTORS_LIST"] for f in sub]
-factor_counts = pd.Series(all_factors_flat).value_counts()
-TOP_FACTORS = factor_counts.head(10).index.tolist()
+    all_factors_flat = [f for sub in df["FACTORS_LIST"] for f in sub]
+    factor_counts = pd.Series(all_factors_flat).value_counts()
+    TOP_FACTORS = factor_counts.head(10).index.tolist()
 
-# PERSON_TYPE (type of persons involved)
-if "PERSON_TYPE" not in df.columns and "PERSON_TYPE" in df.columns:
-     pass
-# ensure PERSON_TYPE column exists
-if "PERSON_TYPE" not in df.columns:
-     if "PERSON_TYPE" in df.columns:
-          df["PERSON_TYPE"] = df["PERSON_TYPE"]
-     else:
-          df["PERSON_TYPE"] = df.get("PERSON_TYPE", "Unknown").fillna("Unknown")
+    # PERSON_TYPE (type of persons involved)
+    if "PERSON_TYPE" not in df.columns and "PERSON_TYPE" in df.columns:
+         pass
+    # ensure PERSON_TYPE column exists
+    if "PERSON_TYPE" not in df.columns:
+         if "PERSON_TYPE" in df.columns:
+              df["PERSON_TYPE"] = df["PERSON_TYPE"]
+         else:
+              df["PERSON_TYPE"] = df.get("PERSON_TYPE", "Unknown").fillna("Unknown")
 
-# POSITION_IN_VEHICLE_CLEAN is provided in dataset per your list, ensure it's present
-if "POSITION_IN_VEHICLE_CLEAN" not in df.columns:
-     df["POSITION_IN_VEHICLE_CLEAN"] = df.get("POSITION_IN_VEHICLE_CLEAN", "").fillna("Unknown")
+    # POSITION_IN_VEHICLE_CLEAN is provided in dataset per your list, ensure it's present
+    if "POSITION_IN_VEHICLE_CLEAN" not in df.columns:
+         df["POSITION_IN_VEHICLE_CLEAN"] = df.get("POSITION_IN_VEHICLE_CLEAN", "").fillna("Unknown")
 
-# Ensure other person-related columns exist (for new plots)
-for col in ["PERSON_AGE", "PERSON_SEX", "BODILY_INJURY", "SAFETY_EQUIPMENT", "EMOTIONAL_STATUS", "UNIQUE_ID", "EJECTION", "ZIP CODE", "PERSON_INJURY"]:
-    if col not in df.columns:
-        # Create a placeholder column if not found (assuming person-level data is in the merged set)
-        if col == "UNIQUE_ID":
-            df[col] = df.index + 1
-        elif col == "PERSON_AGE":
-            df[col] = pd.to_numeric(df.get(col, np.nan), errors='coerce').fillna(0).astype(int) # Coerce age to int, fill missing/bad with 0
-        elif col in ["EJECTION", "ZIP CODE", "PERSON_INJURY"]:
-             df[col] = df.get(col, "Unknown").fillna("Unknown")
-        else:
-            df[col] = df.get(col, "Unknown").fillna("Unknown")
+    # Ensure other person-related columns exist (for new plots)
+    for col in ["PERSON_AGE", "PERSON_SEX", "BODILY_INJURY", "SAFETY_EQUIPMENT", "EMOTIONAL_STATUS", "UNIQUE_ID", "EJECTION", "ZIP CODE", "PERSON_INJURY"]:
+        if col not in df.columns:
+            # Create a placeholder column if not found (assuming person-level data is in the merged set)
+            if col == "UNIQUE_ID":
+                df[col] = df.index + 1
+            elif col == "PERSON_AGE":
+                df[col] = pd.to_numeric(df.get(col, np.nan), errors='coerce').fillna(0).astype(int) # Coerce age to int, fill missing/bad with 0
+            elif col in ["EJECTION", "ZIP CODE", "PERSON_INJURY"]:
+                 df[col] = df.get(col, "Unknown").fillna("Unknown")
+            else:
+                df[col] = df.get(col, "Unknown").fillna("Unknown")
 
-# Ensure additional columns exist
-for col in ["COMPLAINT", "VEHICLE TYPE CODE 1", "CONTRIBUTING FACTOR VEHICLE 1"]:
-    if col not in df.columns:
-        df[col] = "Unknown"
+    # Ensure additional columns exist
+    for col in ["COMPLAINT", "VEHICLE TYPE CODE 1", "CONTRIBUTING FACTOR VEHICLE 1"]:
+        if col not in df.columns:
+            df[col] = "Unknown"
+
+except Exception as e:
+    print(f"Data processing failed, but the app will continue. Error: {e}")
+    # Continue with whatever data we have
 
 # Small helper to add jitter to lat/lon to separate overlapping points
 def jitter_coords(series, scale=0.0006):
@@ -207,10 +212,9 @@ BOROUGH_COLORS = {
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 server = app.server
 
-
 # Year slider marks
-min_year = int(df["YEAR"].min()) if not df["YEAR"].isna().all() else 2010
-max_year = int(df["YEAR"].max()) if not df["YEAR"].isna().all() else pd.Timestamp.now().year
+min_year = int(df["YEAR"].min()) if "YEAR" in df.columns and not df["YEAR"].isna().all() else 2010
+max_year = int(df["YEAR"].max()) if "YEAR" in df.columns and not df["YEAR"].isna().all() else pd.Timestamp.now().year
 year_marks = {y: str(y) for y in range(min_year, max_year + 1)}
 
 app.layout = dbc.Container([
@@ -256,7 +260,7 @@ app.layout = dbc.Container([
                     html.Label("Borough", style={'color': '#ffffff', 'fontWeight': 'bold'}),
                     dcc.Dropdown(
                         id="borough_filter",
-                        options=[{"label": b, "value": b} for b in sorted(df["BOROUGH"].dropna().unique())],
+                        options=[{"label": b, "value": b} for b in sorted(df["BOROUGH"].dropna().unique())] if "BOROUGH" in df.columns else [],
                         multi=True,
                         placeholder="All Boroughs",
                         style={'backgroundColor': '#FFE6E6', 'border': '1px solid #FFB6C1'}
@@ -267,7 +271,7 @@ app.layout = dbc.Container([
                     dcc.Dropdown(
                         id="vehicle_filter",
                         options=[{"label": v, "value": v}
-                                for v in sorted({vt for sub in df["VEHICLE_TYPES_LIST"] for vt in sub})],
+                                for v in sorted({vt for sub in df["VEHICLE_TYPES_LIST"] for vt in sub})] if "VEHICLE_TYPES_LIST" in df.columns else [],
                         multi=True,
                         placeholder="All Vehicle Types",
                         style={'backgroundColor': '#FFE6E6', 'border': '1px solid #FFB6C1'}
@@ -278,7 +282,7 @@ app.layout = dbc.Container([
                     dcc.Dropdown(
                         id="factor_filter",
                         options=[{"label": f, "value": f}
-                                for f in sorted({f for sub in df["FACTORS_LIST"] for f in sub})],
+                                for f in sorted({f for sub in df["FACTORS_LIST"] for f in sub})] if "FACTORS_LIST" in df.columns else [],
                         multi=True,
                         placeholder="All Factors",
                         style={'backgroundColor': '#FFE6E6', 'border': '1px solid #FFB6C1'}
@@ -288,7 +292,7 @@ app.layout = dbc.Container([
                     html.Label("Person Type", style={'color': '#ffffff', 'fontWeight': 'bold'}),
                     dcc.Dropdown(
                         id="person_type_filter",
-                        options=[{"label": v, "value": v} for v in sorted(df["PERSON_TYPE"].dropna().unique())],
+                        options=[{"label": v, "value": v} for v in sorted(df["PERSON_TYPE"].dropna().unique())] if "PERSON_TYPE" in df.columns else [],
                         multi=True,
                         placeholder="All Person Types",
                         style={'backgroundColor': '#FFE6E6', 'border': '1px solid #FFB6C1'}
@@ -302,7 +306,7 @@ app.layout = dbc.Container([
                     html.Label("Injury Type", style={'color': '#ffffff', 'fontWeight': 'bold'}),
                     dcc.Dropdown(
                         id="injury_filter",
-                        options=[{"label": i, "value": i} for i in sorted(df["PERSON_INJURY"].dropna().unique())],
+                        options=[{"label": i, "value": i} for i in sorted(df["PERSON_INJURY"].dropna().unique())] if "PERSON_INJURY" in df.columns else [],
                         multi=True,
                         placeholder="All Injury Types",
                         style={'backgroundColor': '#FFE6E6', 'border': '1px solid #FFB6C1'}
@@ -823,8 +827,8 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
 
      # Calculate statistics for live stats
      total_crashes = len(dff)
-     total_injuries = dff["TOTAL_INJURED"].sum()
-     total_killed = dff["TOTAL_KILLED"].sum()
+     total_injuries = dff["TOTAL_INJURED"].sum() if "TOTAL_INJURED" in dff.columns else 0
+     total_killed = dff["TOTAL_KILLED"].sum() if "TOTAL_KILLED" in dff.columns else 0
      avg_injuries_per_crash = total_injuries / total_crashes if total_crashes > 0 else 0
 
      # Define pink plot template
@@ -843,7 +847,7 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
 
      # ---------- LAMA'S FIGURES ----------
      # 1) Injuries by Borough - Consistent borough colors
-     injuries_by_borough = dff.groupby("BOROUGH")["TOTAL_INJURED"].sum().reset_index().sort_values("TOTAL_INJURED", ascending=False)
+     injuries_by_borough = dff.groupby("BOROUGH")["TOTAL_INJURED"].sum().reset_index().sort_values("TOTAL_INJURED", ascending=False) if "BOROUGH" in dff.columns and "TOTAL_INJURED" in dff.columns else pd.DataFrame(columns=["BOROUGH", "TOTAL_INJURED"])
      fig_inj_borough = px.bar(injuries_by_borough, x="BOROUGH", y="TOTAL_INJURED",
                               labels={"TOTAL_INJURED": "Total Injured", "BOROUGH": "Borough"},
                               text="TOTAL_INJURED",
@@ -855,7 +859,7 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
      # 2) Crashes by Contributing Factor - Purple shades
      factor_rows = []
      for _, row in dff.iterrows():
-          for f in row["FACTORS_LIST"]:
+          for f in row["FACTORS_LIST"] if "FACTORS_LIST" in row and isinstance(row["FACTORS_LIST"], list) else []:
                factor_rows.append((f, row["UNIQUE_ID"] if "UNIQUE_ID" in row else 1))
      factor_df = pd.DataFrame(factor_rows, columns=["Factor", "UID"]) if factor_rows else pd.DataFrame(columns=["Factor", "UID"])
      factor_counts_df = factor_df["Factor"].value_counts().head(15).reset_index()
@@ -867,7 +871,7 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
      fig_factor.update_layout(margin=dict(t=40, b=20), yaxis={'categoryorder':'total ascending'}, template=pink_template)
 
      # 3) Crashes per Year (line) by Borough - Consistent borough colors
-     year_group = dff.groupby(["YEAR", "BOROUGH"]).size().reset_index(name="Crashes")
+     year_group = dff.groupby(["YEAR", "BOROUGH"]).size().reset_index(name="Crashes") if "YEAR" in dff.columns and "BOROUGH" in dff.columns else pd.DataFrame(columns=["YEAR", "BOROUGH", "Crashes"])
      if not year_group.empty:
           fig_year = px.line(year_group, x="YEAR", y="Crashes", color="BOROUGH", markers=True,
                            color_discrete_map=BOROUGH_COLORS)
@@ -877,7 +881,7 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
           fig_year.update_layout(title="Crashes per Year (no data for selection)")
 
      # 4) Crash locations points map - Consistent borough colors
-     df_map = dff.dropna(subset=["LATITUDE", "LONGITUDE"]).copy()
+     df_map = dff.dropna(subset=["LATITUDE", "LONGITUDE"]).copy() if "LATITUDE" in dff.columns and "LONGITUDE" in dff.columns else pd.DataFrame()
      if not df_map.empty:
           df_map["_LAT_JIT"] = jitter_coords(df_map["LATITUDE"].fillna(0).astype(float), scale=0.0005)
           df_map["_LON_JIT"] = jitter_coords(df_map["LONGITUDE"].fillna(0).astype(float), scale=0.0005)
@@ -898,13 +902,13 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
           fig_map.update_layout(title="No location data to display")
 
      # 5) Gender Distribution
-     gender_dist = dff.groupby("PERSON_SEX")["UNIQUE_ID"].count().reset_index(name="Count")
+     gender_dist = dff.groupby("PERSON_SEX")["UNIQUE_ID"].count().reset_index(name="Count") if "PERSON_SEX" in dff.columns and "UNIQUE_ID" in dff.columns else pd.DataFrame(columns=["PERSON_SEX", "Count"])
      fig_gender = px.pie(gender_dist, names="PERSON_SEX", values="Count",
                         color_discrete_sequence=['#4A90E2', '#FF8DA1', '#95A5A6'])
      fig_gender.update_layout(margin=dict(t=40, b=20), template=pink_template)
 
      # 6) Safety Equipment Usage (Top 5)
-     safety_dist = dff.groupby("SAFETY_EQUIPMENT")["UNIQUE_ID"].count().reset_index(name="Count")
+     safety_dist = dff.groupby("SAFETY_EQUIPMENT")["UNIQUE_ID"].count().reset_index(name="Count") if "SAFETY_EQUIPMENT" in dff.columns and "UNIQUE_ID" in dff.columns else pd.DataFrame(columns=["SAFETY_EQUIPMENT", "Count"])
      safety_dist = safety_dist.sort_values("Count", ascending=False).head(5)
      fig_safety = px.pie(safety_dist, names="SAFETY_EQUIPMENT", values="Count",
                          labels={"SAFETY_EQUIPMENT": "Safety Equipment", "Count": "Number of Records"},
@@ -912,7 +916,7 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
      fig_safety.update_layout(margin=dict(t=40, b=20), template=pink_template)
 
      # 7) Emotional State Distribution - Pink color
-     emotional_dist = dff.groupby("EMOTIONAL_STATUS")["UNIQUE_ID"].count().reset_index(name="Count")
+     emotional_dist = dff.groupby("EMOTIONAL_STATUS")["UNIQUE_ID"].count().reset_index(name="Count") if "EMOTIONAL_STATUS" in dff.columns and "UNIQUE_ID" in dff.columns else pd.DataFrame(columns=["EMOTIONAL_STATUS", "Count"])
      emotional_dist = emotional_dist.sort_values("Count", ascending=False)
      fig_emotional = px.bar(emotional_dist, x="EMOTIONAL_STATUS", y="Count",
                              labels={"EMOTIONAL_STATUS": "Emotional State", "Count": "Number of Records"},
@@ -920,7 +924,7 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
      fig_emotional.update_layout(margin=dict(t=40, b=20), xaxis={'categoryorder':'total descending'}, template=pink_template, showlegend=False)
 
      # 8) Age Distribution with Marginal Box Plot
-     dff["PERSON_AGE"] = pd.to_numeric(dff["PERSON_AGE"], errors='coerce')
+     dff["PERSON_AGE"] = pd.to_numeric(dff["PERSON_AGE"], errors='coerce') if "PERSON_AGE" in dff.columns else pd.Series([0]*len(dff))
      fig_age_hist = px.histogram(dff, x="PERSON_AGE", nbins=30,
                            marginal="box",
                            hover_data=["PERSON_AGE"],
@@ -935,7 +939,7 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
      # 9) Injuries by Person Type Over Time
      person_type_time = dff.groupby(["YEAR", "PERSON_TYPE"]).agg({
          "TOTAL_INJURED": "sum"
-     }).reset_index()
+     }).reset_index() if "YEAR" in dff.columns and "PERSON_TYPE" in dff.columns and "TOTAL_INJURED" in dff.columns else pd.DataFrame(columns=["YEAR", "PERSON_TYPE", "TOTAL_INJURED"])
      fig_person_time = px.bar(person_type_time, x="YEAR", y="TOTAL_INJURED", color="PERSON_TYPE",
                              barmode="stack",
                              color_discrete_sequence=vibrant_colors)
@@ -950,14 +954,14 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
 
      # ---------- DAREEN'S FIGURES ----------
      # 1. Borough chart - Consistent borough colors
-     borough_df = dff.groupby("BOROUGH").size().reset_index(name="Count").sort_values("Count", ascending=False)
+     borough_df = dff.groupby("BOROUGH").size().reset_index(name="Count").sort_values("Count", ascending=False) if "BOROUGH" in dff.columns else pd.DataFrame(columns=["BOROUGH", "Count"])
      fig_borough_dareen = px.bar(borough_df, x="BOROUGH", y="Count",
                                 color="BOROUGH",
                                 color_discrete_map=BOROUGH_COLORS)
      fig_borough_dareen.update_layout(template=pink_template, showlegend=False)
 
      # 2. Injury-Type chart (horizontal) - Teal color
-     injury_df = dff.groupby("BODILY_INJURY").size().reset_index(name="Count").sort_values("Count", ascending=False)
+     injury_df = dff.groupby("BODILY_INJURY").size().reset_index(name="Count").sort_values("Count", ascending=False) if "BODILY_INJURY" in dff.columns else pd.DataFrame(columns=["BODILY_INJURY", "Count"])
      fig_injury_dareen = px.bar(
           injury_df,
           x="Count",
@@ -971,7 +975,7 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
 
      # 3. Ejection chart (grouped by person type)
      fig_ejection = px.bar(
-          dff.groupby(["PERSON_TYPE", "EJECTION"]).size().reset_index(name="Count"),
+          dff.groupby(["PERSON_TYPE", "EJECTION"]).size().reset_index(name="Count") if "PERSON_TYPE" in dff.columns and "EJECTION" in dff.columns else pd.DataFrame(columns=["PERSON_TYPE", "EJECTION", "Count"]),
           x="EJECTION",
           y="Count",
           color="PERSON_TYPE",
@@ -981,10 +985,10 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
      fig_ejection.update_layout(template=pink_template)
 
      # 4. Complaint chart (grouped by person type)
-     top_complaints = dff["COMPLAINT"].value_counts().nlargest(10).index
+     top_complaints = dff["COMPLAINT"].value_counts().nlargest(10).index if "COMPLAINT" in dff.columns else []
      fig_complaint = px.bar(
           dff[dff["COMPLAINT"].isin(top_complaints)].groupby(["COMPLAINT", "PERSON_TYPE"])
-          .size().reset_index(name="Count"),
+          .size().reset_index(name="Count") if "COMPLAINT" in dff.columns and "PERSON_TYPE" in dff.columns else pd.DataFrame(columns=["COMPLAINT", "PERSON_TYPE", "Count"]),
           x="COMPLAINT",
           y="Count",
           color="PERSON_TYPE",
@@ -994,9 +998,9 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
      fig_complaint.update_layout(xaxis_tickangle=-45, template=pink_template)
 
      # 5. Vehicle Factor Heatmap
-     top_factors = dff["CONTRIBUTING FACTOR VEHICLE 1"].value_counts().nlargest(10).index
+     top_factors = dff["CONTRIBUTING FACTOR VEHICLE 1"].value_counts().nlargest(10).index if "CONTRIBUTING FACTOR VEHICLE 1" in dff.columns else []
      fig_vehicle_factor = px.density_heatmap(
-          dff[dff["CONTRIBUTING FACTOR VEHICLE 1"].isin(top_factors)],
+          dff[dff["CONTRIBUTING FACTOR VEHICLE 1"].isin(top_factors)] if "CONTRIBUTING FACTOR VEHICLE 1" in dff.columns and "VEHICLE TYPE CODE 1" in dff.columns else pd.DataFrame(),
           x="VEHICLE TYPE CODE 1",
           y="CONTRIBUTING FACTOR VEHICLE 1",
           labels={"VEHICLE TYPE CODE 1": "Vehicle Type", "CONTRIBUTING FACTOR VEHICLE 1": "Contributing Factor"},
@@ -1006,7 +1010,7 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
 
      # 6. Position chart
      fig_position = px.bar(
-          dff.groupby(["POSITION_IN_VEHICLE_CLEAN", "PERSON_INJURY"]).size().reset_index(name="Count"),
+          dff.groupby(["POSITION_IN_VEHICLE_CLEAN", "PERSON_INJURY"]).size().reset_index(name="Count") if "POSITION_IN_VEHICLE_CLEAN" in dff.columns and "PERSON_INJURY" in dff.columns else pd.DataFrame(columns=["POSITION_IN_VEHICLE_CLEAN", "PERSON_INJURY", "Count"]),
           x="POSITION_IN_VEHICLE_CLEAN",
           y="Count",
           color="PERSON_INJURY",
@@ -1016,7 +1020,7 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
      fig_position.update_layout(template=pink_template)
 
      # 7. Vehicle trend chart - Vibrant colors
-     trend_df = dff.groupby(["YEAR", "VEHICLE TYPE CODE 1"]).size().reset_index(name="Count")
+     trend_df = dff.groupby(["YEAR", "VEHICLE TYPE CODE 1"]).size().reset_index(name="Count") if "YEAR" in dff.columns and "VEHICLE TYPE CODE 1" in dff.columns else pd.DataFrame(columns=["YEAR", "VEHICLE TYPE CODE 1", "Count"])
      fig_vehicle_trend = px.line(
           trend_df,
           x="YEAR",
@@ -1029,7 +1033,7 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
 
      # ---------- ADVANCED ANALYTICS FIGURES ----------
      # 1. Hotspot Cluster Map
-     df_coords = dff.dropna(subset=["LATITUDE", "LONGITUDE"]).copy()
+     df_coords = dff.dropna(subset=["LATITUDE", "LONGITUDE"]).copy() if "LATITUDE" in dff.columns and "LONGITUDE" in dff.columns else pd.DataFrame()
      if len(df_coords) > 10:
           coords = df_coords[["LATITUDE", "LONGITUDE"]].values
           kmeans = KMeans(n_clusters=min(10, len(df_coords)), random_state=42)
@@ -1094,7 +1098,7 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
           fig_severity.update_layout(title="No severity data available")
 
      # 5. Risk Density Map
-     df_risk = dff.dropna(subset=["LATITUDE", "LONGITUDE"]).copy()
+     df_risk = dff.dropna(subset=["LATITUDE", "LONGITUDE"]).copy() if "LATITUDE" in dff.columns and "LONGITUDE" in dff.columns else pd.DataFrame()
      if not df_risk.empty:
           fig_density = px.density_mapbox(df_risk, lat='LATITUDE', lon='LONGITUDE',
                                          z='SEVERITY_SCORE', radius=20,
@@ -1174,8 +1178,8 @@ def update_dashboard(n_clicks, year_range, boroughs, vehicles, factors, injuries
     prevent_initial_call=True
 )
 def clear_all_filters(n_clicks):
-    min_year = int(df["YEAR"].min()) if not df["YEAR"].isna().all() else 2010
-    max_year = int(df["YEAR"].max()) if not df["YEAR"].isna().all() else pd.Timestamp.now().year
+    min_year = int(df["YEAR"].min()) if "YEAR" in df.columns and not df["YEAR"].isna().all() else 2010
+    max_year = int(df["YEAR"].max()) if "YEAR" in df.columns and not df["YEAR"].isna().all() else pd.Timestamp.now().year
 
     return (
         [min_year, max_year],  # year_slider
