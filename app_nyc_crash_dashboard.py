@@ -1192,4 +1192,3 @@ def clear_all_filters(n_clicks):
     )
 
 
-app.run_server(port=8050)
