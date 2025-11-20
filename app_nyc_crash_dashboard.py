@@ -45,7 +45,7 @@ else:
 # Keep original columns but create convenient working columns
 # Some columns have spaces in names; use exact names from your message.
 # Convert crash datetime to datetime (coerce errors)
-df["CRASH_DATETIME"] = pd.to_datetime(df["CRASH_DATETIME"], errors="coerce")
+df["CRASH_DATETIME"] = pd.to_datetime(df.get("CRASH_DATETIME", pd.NaT), errors="coerce")
 # YEAR for slider and groupings
 df["YEAR"] = df["CRASH_DATETIME"].dt.year
 df["MONTH"] = df["CRASH_DATETIME"].dt.month
