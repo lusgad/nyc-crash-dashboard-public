@@ -22,51 +22,9 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 import plotly.figure_factory as ff
 
-# Load dataset from Google Drive
-#df = pd.read_csv("https://drive.google.com/uc?export=download&id=1-hKQcBXvIYuqXUyLfjTKp6DXinVtOss2", dtype=str)
 
-import requests
-import io
-
-def load_google_drive_data():
-    """Load data from Google Drive"""
-    file_id = "1-hKQcBXvIYuqXUyLfjTKp6DXinVtO1ss2"
-    
-    try:
-        print("Attempting to load data from Google Drive...")
-        url = f"https://drive.google.com/uc?export=download&id={file_id}"
-        response = requests.get(url, timeout=30)
-        
-        if response.status_code == 200:
-            df = pd.read_csv(io.StringIO(response.text), dtype=str)
-            print(f"✅ Data loaded: {len(df)} rows, {len(df.columns)} columns")
-            return df
-        else:
-            print(f"❌ Failed with status {response.status_code}")
-            return pd.DataFrame()
-            
-    except Exception as e:
-        print(f"❌ Error loading data: {e}")
-        return pd.DataFrame()
-
-# Load data
-df = load_google_drive_data()
-
-# If data is empty, create minimal working data
-if df.empty:
-    print("Creating minimal dataset...")
-    df = pd.DataFrame({
-        'BOROUGH': ['Manhattan', 'Brooklyn', 'Queens'] * 10,
-        'CRASH_DATETIME': pd.date_range('2020-01-01', periods=30).tolist(),
-        'NUMBER OF PERSONS INJURED': [1, 0, 2] * 10,
-        'NUMBER OF PERSONS KILLED': [0, 0, 1] * 10,
-        'LATITUDE': [40.7, 40.6, 40.7] * 10,
-        'LONGITUDE': [-74.0, -73.9, -73.8] * 10,
-        'VEHICLE TYPE CODE 1': ['Sedan', 'SUV', 'Truck'] * 10,
-        'CONTRIBUTING FACTOR VEHICLE 1': ['Driver Inattention', 'Speeding', 'Failure to Yield'] * 10,
-        'PERSON_TYPE': ['Driver', 'Pedestrian', 'Passenger'] * 10,
-        'PERSON_INJURY': ['Injured', 'Uninjured', 'Killed'] * 10
-    })
+# Load dataset from Dropbox
+df = pd.read_csv("https://dl.dropboxusercontent.com/scl/fi/mu05qimebqbtfhiabyc5j/merged_cleaned_dataset.csv?rlkey=ofkpc5wpdjf4f3np78nfwl3x3&st=rylyq57v&dl=1", dtype=str)
 
 # BASIC DATA PROCESSING (remove complex parsing)
 try:
