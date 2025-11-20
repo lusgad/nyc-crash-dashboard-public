@@ -21,11 +21,39 @@ import re
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 import plotly.figure_factory as ff
+import requests
 
+def test_limewire_link():
+    url = "https://limewire.com/d/XvirJ#wgCOmjSCym"
+    
+    try:
+        print("Testing LimeWire link...")
+        response = requests.get(url, timeout=30)
+        print(f"Status Code: {response.status_code}")
+        print(f"Content Type: {response.headers.get('content-type')}")
+        print(f"Content Length: {len(response.content)}")
+        
+        # Check if it's a redirect to a login page
+        if "login" in response.url or "signin" in response.url:
+            print("❌ Link redirects to login page - requires authentication")
+            return False
+        elif response.status_code == 200:
+            print("✅ Link accessible!")
+            return True
+        else:
+            print(f"❌ Link failed with status: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Error accessing link: {e}")
+        return False
 
-# Load dataset from Dropbox
-df = pd.read_csv("https://dl.dropboxusercontent.com/scl/fi/mu05qimebqbtfhiabyc5j/merged_cleaned_dataset.csv?rlkey=ofkpc5wpdjf4f3np78nfwl3x3&st=rylyq57v&dl=1", dtype=str)
-
+# Test the link
+if test_limewire_link():
+    # If it works, use it
+    df = pd.read_csv("https://limewire.com/d/XvirJ#wgCOmjSCym", dtype=str)
+else:
+    print("LimeWire link requires authentication. Use one of the other methods.")
 # BASIC DATA PROCESSING (remove complex parsing)
 try:
     # Basic column setup
