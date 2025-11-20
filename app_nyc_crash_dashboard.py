@@ -23,7 +23,39 @@ from sklearn.preprocessing import StandardScaler
 import plotly.figure_factory as ff
 
 # Load dataset from Google Drive
-df = pd.read_csv("https://drive.google.com/uc?export=download&id=1-hKQcBXvIYuqXUyLfjTKp6DXinVtOss2", dtype=str)
+#df = pd.read_csv("https://drive.google.com/uc?export=download&id=1-hKQcBXvIYuqXUyLfjTKp6DXinVtOss2", dtype=str)
+
+import requests
+import io
+
+def load_google_drive_data():
+    """Load data from Google Drive with multiple URL formats"""
+    file_id = "1-hKQcBXvIYuqXUyLfjTKp6DXinVtOss2"
+    
+    # Try different Google Drive URL formats
+    urls = [
+        f"https://drive.google.com/uc?export=download&id={file_id}",
+        f"https://drive.google.com/uc?export=download&confirm=t&id={file_id}",
+        f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=csv"
+    ]
+    
+    for i, url in enumerate(urls, 1):
+        try:
+            print(f"Attempting download from URL {i}...")
+            response = requests.get(url, timeout=30)
+            if response.status_code == 200 and len(response.content) > 1000:
+                df = pd.read_csv(io.StringIO(response.text), dtype=str)
+                print(f"Successfully loaded data. Shape: {df.shape}")
+                return df
+        except Exception as e:
+            print(f"URL {i} failed: {e}")
+            continue
+    
+    # If all URLs fail, raise an error
+    raise Exception("All Google Drive download methods failed")
+
+# Load the data
+df = load_google_drive_data()
 
 # WRAP ALL DATA PROCESSING IN TRY-EXCEPT
 try:
