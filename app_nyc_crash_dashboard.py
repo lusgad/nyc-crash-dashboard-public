@@ -80,7 +80,7 @@ df["SEVERITY_SCORE"] = (df["TOTAL_INJURED"] * 1 + df["TOTAL_KILLED"] * 5)
 
 # FULL_ADDRESS fallback
 if "FULL ADDRESS" not in df.columns:
-     df["FULL ADDRESS"] = df.get("ON STREET NAME", "").fillna("") + ", " + df.get("BOROUGH", "")
+     df["FULL ADDRESS"] = df.get("ON STREET NAME", pd.Series([""] * len(df))).fillna("") + ", " + df.get("BOROUGH", pd.Series([""] * len(df))).fillna("")
 
 # Latitude / Longitude as numeric
 for coord in ("LATITUDE", "LONGITUDE"):
