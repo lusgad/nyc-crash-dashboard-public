@@ -23,37 +23,58 @@ from sklearn.preprocessing import StandardScaler
 import plotly.figure_factory as ff
 import requests
 
-def test_limewire_link():
+import requests
+from bs4 import BeautifulSoup
+
+def get_limewire_download_url():
     url = "https://limewire.com/d/XvirJ#wgCOmjSCym"
     
     try:
-        print("Testing LimeWire link...")
+        print("Fetching LimeWire page...")
         response = requests.get(url, timeout=30)
-        print(f"Status Code: {response.status_code}")
-        print(f"Content Type: {response.headers.get('content-type')}")
-        print(f"Content Length: {len(response.content)}")
+        soup = BeautifulSoup(response.content, 'html.parser')
         
-        # Check if it's a redirect to a login page
-        if "login" in response.url or "signin" in response.url:
-            print("❌ Link redirects to login page - requires authentication")
-            return False
-        elif response.status_code == 200:
-            print("✅ Link accessible!")
-            return True
-        else:
-            print(f"❌ Link failed with status: {response.status_code}")
-            return False
+        # Look for download links or file information
+        print("Page title:", soup.title.string if soup.title else "No title")
+        
+        # Common patterns for file download links
+        download_links = []
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+            if '.csv' in href or 'download' in href.lower():
+                download_links.append(href)
+                print(f"Found potential download link: {href}")
+        
+        # Also check for script tags that might contain file URLs
+        scripts = soup.find_all('script')
+        for script in scripts:
+            if script.string and ('csv' in script.string.lower() or 'file' in script.string.lower()):
+                print("Script content may contain file info")
+        
+        if not download_links:
+            print("No direct download links found. The file might require manual download from the web interface.")
+            return None
             
+        return download_links[0] if download_links else None
+        
     except Exception as e:
-        print(f"❌ Error accessing link: {e}")
-        return False
+        print(f"Error analyzing LimeWire page: {e}")
+        return None
 
-# Test the link
-if test_limewire_link():
-    # If it works, use it
-    df = pd.read_csv("https://limewire.com/d/XvirJ#wgCOmjSCym", dtype=str)
+# Try to find the real download URL
+download_url = get_limewire_download_url()
+
+if download_url:
+    print(f"Using download URL: {download_url}")
+    df = pd.read_csv(download_url, dtype=str)
 else:
-    print("LimeWire link requires authentication. Use one of the other methods.")
+    print("Could not find direct download URL. You need to:")
+    print("1. Go to https://limewire.com/d/XvirJ#wgCOmjSCym")
+    print("2. Look for a 'Download' button")
+    print("3. Right-click the download button and copy the link address")
+    print("4. Use that direct download URL")
+
+
 # BASIC DATA PROCESSING (remove complex parsing)
 try:
     # Basic column setup
